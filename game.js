@@ -77,8 +77,8 @@
   const SPAWN_TIERS = [0, 1, 2, 3, 4];
   const SPAWN_WEIGHTS = [0.28, 0.24, 0.20, 0.16, 0.12];
 
-  const BEST_KEY = 'danaiwa.best.v1';
-  const MUTE_KEY = 'danaiwa.mute.v1';
+  const BEST_KEY = '91game.best.v1';
+  const MUTE_KEY = '91game.mute.v1';
 
   /* ---------------------------------------------------------
    *  DOM
@@ -658,8 +658,8 @@
     overlay.classList.add('show');
     Sound.over();
     /* 交给排行榜模块（没加载也不影响） */
-    if (window.DanaiwaBoard && window.DanaiwaBoard.onGameOver) {
-      window.DanaiwaBoard.onGameOver(state.score);
+    if (window.Leaderboard && window.Leaderboard.onGameOver) {
+      window.Leaderboard.onGameOver(state.score);
     }
   }
 
@@ -1176,7 +1176,7 @@
       };
       img.onerror = () => {
         left--;
-        if (window.console) console.warn('[danaiwa] 素材载入失败，已回退为程序化水果：' + f.file);
+        if (window.console) console.warn('[91game] 素材载入失败，已回退为程序化水果：' + f.file);
       };
       img.src = f.file;
     }

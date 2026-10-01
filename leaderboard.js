@@ -1,114 +1,51 @@
 /* ============================================================
- *  91game · 排行榜（TinyWebDB 后端）
+ *  91game · 排行榜（腾讯云 CloudBase 云函数后端）
  *  ------------------------------------------------------------
- *  改成你自己的榜单：把下面 USER / SECRET 换成你自己的
- *  TinyWebDB 账号（免费注册：https://tinywebdb.appinventor.space/），
- *  数据就会存到你自己独立的命名空间里，和原版游戏互不干扰。
+ *  云函数地址在这里填，形如：
+ *    https://<环境ID>.service.tcloudbase.com/leaderboard
  * ============================================================ */
 (function () {
   'use strict';
 
-  // ===== 配置：改成你自己的 =====
-  var API_URL = 'https://tinywebdb.appinventor.space/api';
-  var USER = 'YOUR_USER';        // TODO 换成你的 TinyWebDB 用户名
-  var SECRET = 'YOUR_SECRET';    // TODO 换成你的 TinyWebDB 密钥
-  var TAG_PREFIX = '91game_';    // 榜单数据前缀（你自己的命名空间）
-
-  // 未配置账号时的提示（方便你知道还差最后一步）
-  var NOT_CONFIGURED = (USER === 'YOUR_USER' || SECRET === 'YOUR_SECRET');
+  // ===== 配置：把云函数 HTTP 地址填在这里 =====
+  var API = 'https://YOUR-ENV.service.tcloudbase.com/leaderboard';  // TODO 换成你的云函数地址
 
   var NAME_KEY = '91game.name';
   var DEFAULT_NAME = '默认用户';
   var MUTE_MIN_GAP = 3000;
   var MAX_SCORE = 99999999;
-  var SCAN_PAGES = 2;            // 最多扫 2 页 × 100 条
-  var WINDOW = 20;               // 榜单显示最近多少条
+  var WINDOW = 20;
 
   var $ = function (id) { return document.getElementById(id); };
 
-  /* —— 请求 TinyWebDB —— */
-  function post(params) {
-    if (NOT_CONFIGURED) {
-      return Promise.reject(new Error('榜单尚未配置：请先在 leaderboard.js 里填入你自己的 USER / SECRET'));
-    }
-    var body = new URLSearchParams();
-    body.set('user', USER);
-    body.set('secret', SECRET);
-    for (var k in params) body.set(k, params[k]);
-    var once = function () {
-      return fetch(API_URL, { method: 'POST', body: body }).then(function (res) {
-        if (!res.ok) throw new Error('HTTP ' + res.status);
-        return res.text();
-      }).then(function (text) {
-        var s = (text || '').trim();
-        if (!s) return {};
-        try { return JSON.parse(s); } catch (e) {
-          throw new Error('服务器返回看不懂：' + s.slice(0, 60));
-        }
-      });
-    };
-    // 失败后隔 700ms 重试一次
-    return once().catch(function (err) {
-      return new Promise(function (r) { setTimeout(r, 700); }).then(once).catch(function () { throw err; });
+  /* —— 提交一条成绩 —— */
+  function addScore(name, score) {
+    return fetch(API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name, score: score })
+    }).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return true;
     });
   }
 
-  /* —— 提交一条成绩 —— */
-  function addScore(name, score) {
-    var tag = TAG_PREFIX + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 6);
-    var value = JSON.stringify({ n: name, s: score, t: Date.now() });
-    return post({ action: 'update', tag: tag, value: value });
-  }
-
-  /* —— 拉取前缀匹配的所有条目 —— */
-  function scan() {
-    var out = {};
-    var no = 1, page = 0;
-    function step() {
-      return post({ action: 'search', no: String(no), count: '100', tag: TAG_PREFIX, type: 'both' }).then(function (obj) {
-        for (var k in obj) {
-          if (k.indexOf(TAG_PREFIX) === 0 && typeof obj[k] === 'string') out[k] = obj[k];
-        }
-        page++;
-        if (page < SCAN_PAGES) { no += 100; return step(); }
-        return out;
-      });
-    }
-    return step();
-  }
-
-  /* —— 从 tag / 记录里取时间戳 —— */
-  function tsOf(tag, rec) {
-    var t = Number(rec && rec.t);
-    if (isFinite(t) && t > 0) return t;
-    var mid = String(tag).split('_')[1] || '';
-    if (/^\d{12,}$/.test(mid)) return Number(mid);
-    var s = parseInt(mid, 36);
-    return isFinite(s) ? s : 0;
-  }
-
-  /* —— 取最近 20 条，按分数排序 —— */
+  /* —— 取榜单前 20 —— */
   function fetchTop() {
-    return scan().then(function (obj) {
-      var all = [];
-      for (var tag in obj) {
-        var raw = obj[tag];
-        if (typeof raw !== 'string') continue;
-        var rec;
-        try { rec = JSON.parse(raw); } catch (e) { continue; }
-        var s = Number(rec && rec.s);
-        if (!isFinite(s) || s < 0 || s > MAX_SCORE) continue;
-        all.push({
-          tag: tag,
-          name: String((rec && rec.n) || '匿名玩家').slice(0, 16),
-          score: s,
-          t: tsOf(tag, rec)
+    return fetch(API).then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    }).then(function (rows) {
+      var out = [];
+      (rows || []).forEach(function (r) {
+        var s = Number(r && r.score);
+        if (!isFinite(s) || s < 0 || s > MAX_SCORE) return;
+        out.push({
+          name: String((r && r.name) || '匿名玩家').slice(0, 16),
+          score: s
         });
-      }
-      all.sort(function (a, b) { return (b.t - a.t) || (b.tag > a.tag ? 1 : -1); });
-      var fresh = all.slice(0, WINDOW);
-      fresh.sort(function (a, b) { return (b.score - a.score) || (b.t - a.t); });
-      return fresh;
+      });
+      return out;
     });
   }
 
